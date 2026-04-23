@@ -3,12 +3,450 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <meta name="color-scheme" content="light" />
-    <meta name="description" content="Plot a neonate's serum bilirubin against NICE CG98 phototherapy and exchange transfusion thresholds." />
-    <title>Neonatal Bilirubin Threshold Calculator</title>
+    <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" content="#f8f7f5" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0b0b0e" media="(prefers-color-scheme: dark)" />
+    <meta name="description" content="Plot a neonate's serum bilirubin against NICE CG98 thresholds." />
+    <title>Bilirubin · NICE CG98</title>
+    <style>
+      *, *::before, *::after { box-sizing: border-box; }
+      :root {
+        --bg: #f8f7f5;
+        --surface: #ffffff;
+        --surface-2: #f1efea;
+        --ink: #0f172a;
+        --ink-2: #475569;
+        --ink-3: #94a3b8;
+        --line: #e2e1dc;
+        --line-2: #cbc9c2;
+        --accent: #1e1b4b;
+        --accent-soft: #e9e7f4;
+        --danger: #b91c1c;
+        --radius: 14px;
+        --pad: 16px;
+        --shadow-1: 0 1px 2px rgba(15, 23, 42, .04), 0 6px 20px rgba(15, 23, 42, .04);
+        --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue",
+                Arial, "Apple Color Emoji", "Segoe UI Emoji", sans-serif;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #0b0b0e;
+          --surface: #16161b;
+          --surface-2: #1f1f26;
+          --ink: #f8fafc;
+          --ink-2: #cbd5e1;
+          --ink-3: #64748b;
+          --line: #2a2a33;
+          --line-2: #3a3a46;
+          --accent: #c7c4f7;
+          --accent-soft: #1c1b2c;
+          --shadow-1: 0 1px 2px rgba(0,0,0,.4), 0 6px 20px rgba(0,0,0,.25);
+        }
+      }
+      html, body { height: 100%; margin: 0; }
+      body {
+        background: var(--bg);
+        color: var(--ink);
+        font-family: var(--font);
+        font-size: 16px;
+        line-height: 1.45;
+        -webkit-font-smoothing: antialiased;
+        -webkit-text-size-adjust: 100%;
+        overscroll-behavior-y: contain;
+      }
+      h1, h2, h3 { margin: 0; font-weight: 600; letter-spacing: -0.01em; }
+      p { margin: 0; }
+
+      .app {
+        max-width: 560px;
+        margin: 0 auto;
+        padding: max(12px, env(safe-area-inset-top)) var(--pad)
+                 calc(24px + env(safe-area-inset-bottom)) var(--pad);
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+      }
+      @media (min-width: 900px) {
+        .app {
+          max-width: 960px;
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr);
+          grid-template-areas:
+            "header header"
+            "inputs readout"
+            "inputs chart"
+            "inputs prev"
+            "footer footer";
+          gap: 18px 24px;
+          align-items: start;
+        }
+        .app > header { grid-area: header; }
+        .app > .inputs { grid-area: inputs; }
+        .app > .readout { grid-area: readout; }
+        .app > .chart-card { grid-area: chart; }
+        .app > .prev { grid-area: prev; }
+        .app > footer { grid-area: footer; }
+      }
+
+      header.app-head {
+        padding: 4px 2px 0;
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 12px;
+      }
+      header.app-head h1 {
+        font-size: 17px;
+        color: var(--ink);
+      }
+      header.app-head .sub {
+        font-size: 12px;
+        color: var(--ink-3);
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+      }
+
+      .card {
+        background: var(--surface);
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        box-shadow: var(--shadow-1);
+      }
+      .card-pad { padding: var(--pad); }
+
+      .inputs { display: flex; flex-direction: column; gap: 12px; }
+
+      .field { display: flex; flex-direction: column; gap: 6px; }
+      .field > label {
+        font-size: 12px;
+        color: var(--ink-2);
+        font-weight: 500;
+        letter-spacing: 0.02em;
+      }
+      .field > input {
+        appearance: none;
+        -webkit-appearance: none;
+        font: inherit;
+        min-height: 48px;
+        padding: 10px 12px;
+        font-size: 17px;
+        color: var(--ink);
+        background: var(--surface);
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        outline: none;
+        transition: border-color .15s ease, box-shadow .15s ease;
+      }
+      .field > input:focus-visible {
+        border-color: var(--accent);
+        box-shadow: 0 0 0 3px var(--accent-soft);
+      }
+      .field > input[aria-invalid="true"] { border-color: var(--danger); }
+      .field > input[type="datetime-local"] { font-variant-numeric: tabular-nums; }
+      .field > input::-webkit-date-and-time-value { text-align: left; }
+
+      .error {
+        font-size: 13px;
+        color: var(--danger);
+      }
+
+      .row-2 {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+      }
+      @media (max-width: 380px) { .row-2 { grid-template-columns: 1fr; } }
+
+      /* Gestation grid */
+      .gest {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 6px;
+      }
+      @media (min-width: 480px) { .gest { grid-template-columns: repeat(8, 1fr); } }
+      .gest button {
+        appearance: none;
+        -webkit-appearance: none;
+        font: inherit;
+        font-size: 15px;
+        font-weight: 500;
+        font-variant-numeric: tabular-nums;
+        color: var(--ink);
+        background: var(--surface);
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        min-height: 44px;
+        padding: 0 6px;
+        cursor: pointer;
+        transition: background .12s ease, border-color .12s ease, color .12s ease;
+      }
+      .gest button:hover { border-color: var(--line-2); }
+      .gest button[aria-pressed="true"] {
+        background: var(--ink);
+        border-color: var(--ink);
+        color: var(--bg);
+      }
+      .gest button:focus-visible {
+        outline: none;
+        box-shadow: 0 0 0 3px var(--accent-soft);
+        border-color: var(--accent);
+      }
+
+      /* Readout card — the hero */
+      .readout { display: none; }
+      .readout.is-active { display: block; }
+      .readout-pad { padding: 18px var(--pad) 16px; }
+      .readout .overline {
+        font-size: 11px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--ink-3);
+      }
+      .readout .sbr {
+        font-size: clamp(26px, 6.5vw, 34px);
+        font-weight: 600;
+        font-variant-numeric: tabular-nums;
+        margin-top: 2px;
+        letter-spacing: -0.02em;
+      }
+      .readout .sbr .age {
+        font-weight: 400;
+        color: var(--ink-2);
+        font-size: 0.6em;
+        margin-left: 6px;
+      }
+      .grid-dl {
+        margin-top: 14px;
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 10px;
+      }
+      .stat {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 12px;
+      }
+      .stat dt {
+        font-size: 13px;
+        color: var(--ink-2);
+        font-weight: 500;
+      }
+      .stat dd {
+        margin: 0;
+        font-variant-numeric: tabular-nums;
+        font-feature-settings: "tnum";
+      }
+      .pill {
+        display: inline-flex;
+        align-items: baseline;
+        gap: 6px;
+        padding: 4px 10px;
+        border-radius: 999px;
+        background: var(--surface-2);
+        font-weight: 600;
+        font-size: clamp(16px, 4.6vw, 20px);
+        color: var(--ink);
+        letter-spacing: -0.01em;
+      }
+      .pill .arrow { font-size: 0.9em; color: var(--ink-2); }
+      .pill.on-line { color: var(--ink-2); font-weight: 500; }
+
+      .note {
+        margin-top: 10px;
+        font-size: 12.5px;
+        color: var(--ink-2);
+        padding: 8px 10px;
+        background: var(--surface-2);
+        border-radius: 8px;
+      }
+
+      /* Chart */
+      .chart-card { padding: 10px 10px 6px; }
+      .chart-wrap {
+        width: 100%;
+        aspect-ratio: 16 / 10;
+        overflow: visible;
+      }
+      @media (min-width: 900px) { .chart-wrap { aspect-ratio: 16 / 11; } }
+      svg.chart { display: block; width: 100%; height: 100%; }
+      svg.chart .axis text {
+        font-size: 10px;
+        fill: var(--ink-3);
+        font-variant-numeric: tabular-nums;
+      }
+      svg.chart .grid line { stroke: var(--line); stroke-width: 1; vector-effect: non-scaling-stroke; }
+      svg.chart .grid line.major { stroke: var(--line-2); }
+      svg.chart .axis line { stroke: var(--line-2); stroke-width: 1; vector-effect: non-scaling-stroke; }
+      svg.chart .threshold { fill: none; stroke: var(--ink); stroke-width: 1.75; vector-effect: non-scaling-stroke; }
+      svg.chart .threshold.dashed { stroke-dasharray: 6 5; }
+      svg.chart .threshold-label {
+        font-size: 10px;
+        fill: var(--ink-2);
+        font-weight: 500;
+      }
+      svg.chart .reading-connector {
+        stroke: var(--accent);
+        stroke-width: 1.2;
+        fill: none;
+        vector-effect: non-scaling-stroke;
+      }
+      svg.chart .reading-dot { fill: var(--accent); stroke: var(--accent); stroke-width: 1.5; }
+      svg.chart .reading-dot.prev { fill: var(--surface); }
+      svg.chart .empty-hint {
+        font-size: 11px;
+        fill: var(--ink-3);
+        text-anchor: middle;
+      }
+
+      /* Previous-reading disclosure */
+      .prev { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow-1); }
+      .prev summary { list-style: none; }
+      .prev summary::-webkit-details-marker { display: none; }
+      .prev-toggle {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        width: 100%;
+        appearance: none;
+        -webkit-appearance: none;
+        background: transparent;
+        border: 0;
+        padding: 14px var(--pad);
+        font: inherit;
+        color: var(--ink);
+        text-align: left;
+        min-height: 48px;
+        cursor: pointer;
+        border-radius: var(--radius);
+      }
+      .prev-toggle:focus-visible {
+        outline: none;
+        box-shadow: 0 0 0 3px var(--accent-soft);
+      }
+      .prev-toggle .chev {
+        display: inline-block;
+        transition: transform .18s ease;
+        color: var(--ink-3);
+        font-size: 14px;
+      }
+      .prev[open] .prev-toggle .chev { transform: rotate(90deg); }
+      .prev-body { padding: 0 var(--pad) var(--pad); display: none; }
+      .prev[open] .prev-body { display: flex; flex-direction: column; gap: 10px; }
+
+      /* Footer */
+      footer.disclaimer {
+        margin-top: 4px;
+        padding: 12px 2px 0;
+        font-size: 12px;
+        color: var(--ink-2);
+      }
+      footer.disclaimer p + p { margin-top: 8px; color: var(--ink-3); }
+      footer.disclaimer a { color: inherit; text-decoration: underline; }
+    </style>
   </head>
   <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
+    <div class="app" id="app">
+      <header class="app-head">
+        <h1>Bilirubin threshold</h1>
+        <span class="sub">NICE CG98 · μmol/L</span>
+      </header>
+
+      <section class="inputs" aria-label="Inputs">
+        <div class="card card-pad">
+          <div class="field" style="gap: 10px;">
+            <label>Gestational age (weeks)</label>
+            <div class="gest" role="radiogroup" aria-label="Gestational age" id="gest-group"></div>
+          </div>
+        </div>
+
+        <div class="card card-pad">
+          <div class="field">
+            <label for="dob">Date and time of birth</label>
+            <input id="dob" type="datetime-local" autocomplete="off" />
+          </div>
+        </div>
+
+        <div class="card card-pad">
+          <div class="field" style="gap: 10px;">
+            <label style="font-size:13px; font-weight:600; color: var(--ink);">Current sample</label>
+            <div class="row-2">
+              <div class="field">
+                <label for="cur-at">Sample date and time</label>
+                <input id="cur-at" type="datetime-local" autocomplete="off" />
+                <p class="error" id="cur-at-err" hidden></p>
+              </div>
+              <div class="field">
+                <label for="cur-sbr">SBR (μmol/L)</label>
+                <input id="cur-sbr" type="number" inputmode="decimal" step="any" min="0" autocomplete="off" />
+                <p class="error" id="cur-sbr-err" hidden></p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="card readout" id="readout" aria-live="polite" aria-label="Threshold readouts">
+        <div class="readout-pad">
+          <div class="overline">Reading</div>
+          <div class="sbr"><span id="r-sbr">—</span> μmol/L<span class="age" id="r-age"></span></div>
+          <dl class="grid-dl">
+            <div class="stat">
+              <dt>Phototherapy</dt>
+              <dd><span class="pill" id="r-photo">—</span></dd>
+            </div>
+            <div class="stat">
+              <dt>Exchange</dt>
+              <dd><span class="pill" id="r-exch">—</span></dd>
+            </div>
+            <div class="stat" id="r-rise-row" hidden>
+              <dt>Rate of rise</dt>
+              <dd><span class="pill" id="r-rise">—</span></dd>
+            </div>
+          </dl>
+          <p class="note" id="r-note-over" hidden></p>
+          <p class="note" id="r-note-interval" hidden></p>
+        </div>
+      </section>
+
+      <section class="card chart-card" aria-label="Bilirubin threshold chart">
+        <div class="chart-wrap">
+          <svg class="chart" id="chart" viewBox="0 0 600 375" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Bilirubin threshold chart"></svg>
+        </div>
+      </section>
+
+      <details class="prev" id="prev">
+        <summary class="prev-toggle">
+          <span>Add previous reading for rate of rise</span>
+          <span class="chev" aria-hidden="true">›</span>
+        </summary>
+        <div class="prev-body">
+          <div class="row-2">
+            <div class="field">
+              <label for="prev-at">Sample date and time</label>
+              <input id="prev-at" type="datetime-local" autocomplete="off" />
+              <p class="error" id="prev-at-err" hidden></p>
+            </div>
+            <div class="field">
+              <label for="prev-sbr">SBR (μmol/L)</label>
+              <input id="prev-sbr" type="number" inputmode="decimal" step="any" min="0" autocomplete="off" />
+              <p class="error" id="prev-sbr-err" hidden></p>
+            </div>
+          </div>
+        </div>
+      </details>
+
+      <footer class="disclaimer">
+        <p>
+          This tool is for reference by qualified clinicians only. It is not a medical
+          device and must not be the sole basis for clinical decisions. Thresholds are
+          derived from NICE CG98 (published 2010, last updated October 2023). Bilirubin
+          assays vary between manufacturers; consult your local pathology laboratory
+          when interpreting thresholds.
+        </p>
+        <p id="footer-meta"></p>
+      </footer>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
